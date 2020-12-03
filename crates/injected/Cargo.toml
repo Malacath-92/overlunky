@@ -37,6 +37,7 @@ twoway = "*"
 backtrace = "*"
 cxx = "*"
 cached = "*"
+rhai = "*"
 
 [build-dependencies]
 cxx-build = "*"

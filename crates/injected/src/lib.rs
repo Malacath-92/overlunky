@@ -12,7 +12,7 @@ use critical_section::CriticalSectionManager;
 use db::list_entities;
 use log::log_enabled;
 use memory::Memory;
-use models::{API, State};
+use models::{API, State, GameState};
 use std::thread;
 use std::time;
 
@@ -23,6 +23,8 @@ use winapi::um::{
     wincon::FreeConsole,
     wincon::{CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT, CTRL_C_EVENT},
 };
+
+use rhai::{Scope, Engine, Dynamic, EvalAltResult, RegisterFn};
 
 #[no_mangle]
 pub extern "C" fn DllMain(_: *const u8, _reason: u32, _: *const u8) -> u32 {
@@ -60,6 +62,48 @@ unsafe fn set_panic_hook() {
     }));
 }
 
+#[derive(Copy, Clone)]
+pub struct Game {
+    current: GameState,
+    old: GameState,
+    state: State,
+}
+
+impl Game {
+    pub fn new(state: State) -> Game {
+        Game {
+            current: state.gamestate(),
+            old: state.gamestate(),
+            state: state
+        }
+    }
+    pub fn update(&mut self) {
+        self.old = self.current;
+        self.current = self.state.gamestate();
+    }
+    pub fn spawn_entity(&mut self, item: i64, dx: i64, dy: i64) {
+        match self.state.items().player(0) {
+            None => {
+                log::debug!("Script tried to spawn but no player");
+            }
+            Some(player) => {
+                log::debug!("Script spawning a thing");
+                let (x, y) = player.position();
+                let layer = player.layer();
+                unsafe {
+                    self.state.layer(layer).spawn_entity(item as usize, x + dx as f32, y + dy as f32, false);
+                }
+            }
+        }
+    }
+    pub fn current(&mut self) -> GameState {
+        self.current
+    }
+    pub fn old(&mut self) -> GameState {
+        self.old
+    }
+}
+
 #[no_mangle]
 unsafe extern "C" fn run(handle: u32) {
     attach_stdout(handle);
@@ -83,7 +127,62 @@ unsafe extern "C" fn run(handle: u32) {
         log::error!("{}", err);
         return;
     }
-    if log_enabled!(log::Level::Debug) {
+
+    let mut game = Game::new(state);
+    let mut engine = Engine::new();
+    let mut scope = Scope::new();
+    engine.register_type::<GameState>();
+    engine.register_type::<Game>();
+    engine.register_fn("game", move || game);
+    engine.register_fn("spawn_entity", Game::spawn_entity);
+    let mut level_starting: bool = false;
+    match engine.compile_file("Overlunky/script.rhai".into()) {
+        Err(e) => {
+            log::error!("Compile error: {:?}", e);
+        }
+        Ok(ast) => {
+            loop {
+                match state.items().player(0) {
+                    None => {
+                        //log::debug!("Can't find player");
+                    }
+                    Some(player) => {
+                        game.update();
+                        //log::debug!("{:?}", &game.current());
+                        /*if game.current().igt() > game.old().igt() {
+                            match engine.call_fn_dynamic(&mut scope, &ast, "frame", None, [game.current().world().into(), game.current().level().into()]) {
+                                Err(e) => {
+                                    log::error!("Script error: {:?}", e);
+                                }
+                                Ok(result) => {
+                                    log::debug!("Result: {:?}", result);
+                                }
+                            }
+                        }*/
+                        if (game.current().igt() < game.old().igt() && game.current().screen() == 12) || (game.current().screen() == 12 && (game.old().screen() == 11 || game.old().screen() == 13)) {
+                            log::debug!("Level starting, waiting for it to load...");
+                            level_starting = true;
+                        }
+                        if level_starting && game.current().playing() == 1 && game.current().ingame() == 1 && game.current().pause() == 0 && game.current().igt() > game.old().igt() {
+                            level_starting = false;
+                            log::debug!("Running level script");
+                            match engine.call_fn_dynamic(&mut scope, &ast, "level", None, [game.current().world().into(), game.current().level().into()]) {
+                                Err(e) => {
+                                    log::error!("Script error: {:?}", e);
+                                }
+                                Ok(result) => {
+                                    log::debug!("Result: {:?}", result);
+                                }
+                            }
+                        }
+                    }
+                }
+                thread::sleep(time::Duration::from_millis(16));
+            }
+        }
+    }
+
+    /*if log_enabled!(log::Level::Debug) {
         let c = CriticalSectionManager::new();
         loop {
             log::debug!("Enter entity #IDs to spawn, one per line >");
@@ -110,5 +209,5 @@ unsafe extern "C" fn run(handle: u32) {
                 }
             }
         }
-    }
+    }*/
 }

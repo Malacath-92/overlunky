@@ -47,6 +47,7 @@ impl API {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct State {
     location: usize,
     off_items: usize,
@@ -138,6 +139,27 @@ fn get_zoom() -> usize {
     memory.at_exe(addr_zoom) + 10
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct GameState {
+    pub igt: u32,
+    pub screen: u8,
+    pub pause: u8,
+    pub ingame: u8,
+    pub playing: u8,
+    pub world: u8,
+    pub level: u8,
+}
+
+impl GameState {
+    pub fn igt(&mut self) -> i64 { self.igt as i64 }
+    pub fn screen(&mut self) -> i64 { self.screen as i64 }
+    pub fn pause(&mut self) -> i64 { self.pause as i64 }
+    pub fn ingame(&mut self) -> i64 { self.ingame as i64 }
+    pub fn playing(&mut self) -> i64 { self.playing as i64 }
+    pub fn world(&mut self) -> i64 { self.world as i64 }
+    pub fn level(&mut self) -> i64 { self.level as i64 }
+}
+
 impl State {
     pub fn new() -> State {
         let memory = Memory::get();
@@ -207,6 +229,25 @@ impl State {
     pub fn zoom(&self, level: f32) {
         log::debug!("Zoom level: {:?}", level);
         write_mem_prot(self.addr_zoom, &level.to_le_bytes(), true);
+    }
+
+    pub fn gamestate(&self) -> GameState {
+        let igt = read_u32(self.ptr() + 0x60);
+        let screen = read_u8(self.ptr() + 0x10);
+        let pause = read_u8(self.ptr() + 0x32);
+        let ingame = read_u8(self.ptr() + 0x30);
+        let playing = read_u8(self.ptr() + 0x31);
+        let world = read_u8(self.ptr() + 0x65);
+        let level = read_u8(self.ptr() + 0x66);
+        GameState {
+            igt,
+            screen,
+            pause,
+            ingame,
+            playing,
+            world,
+            level,
+        }
     }
 }
 
